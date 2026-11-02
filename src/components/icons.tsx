@@ -152,3 +152,65 @@ export function EyeOffIcon({ size, className }: IconProps) {
     </svg>
   )
 }
+
+export function PaperclipIcon({ size, className }: IconProps) {
+  return (
+    <svg {...props(size)} className={className}>
+      <path d="M20.5 11.5 12 20a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />
+    </svg>
+  )
+}
+
+export function SparklesIcon({ size, className }: IconProps) {
+  return (
+    <svg {...props(size)} className={className}>
+      <path d="M12 3.5 13.6 9 19 10.6 13.6 12.2 12 17.7 10.4 12.2 5 10.6 10.4 9 12 3.5Z" />
+      <path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z" />
+    </svg>
+  )
+}
+
+export function CommandIcon({ size, className }: IconProps) {
+  return (
+    <svg {...props(size)} className={className}>
+      <path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6Z" />
+    </svg>
+  )
+}
+
+export function FileIcon({ size, className }: IconProps) {
+  return (
+    <svg {...props(size)} className={className}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" />
+      <path d="M14 3v5h5" />
+    </svg>
+  )
+}
+
+export function WifiIcon({ size, className }: IconProps) {
+  return (
+    <svg {...props(size)} className={className}>
+      <path d="M4 9a13 13 0 0 1 16 0M7 12.5a8.5 8.5 0 0 1 10 0M10 16a4 4 0 0 1 4 0" />
+      <circle cx="12" cy="19.5" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+export function WifiOffIcon({ size, className }: IconProps) {
+  return (
+    <svg {...props(size)} className={className}>
+      <path d="m3 3 18 18" />
+      <path d="M4 9a13 13 0 0 1 4-2.6M12 5c3 0 5.8 1.4 8 4M7 12.5a8.5 8.5 0 0 1 2.6-1.3M15 11.8a8.5 8.5 0 0 1 2 1.2M10 16a4 4 0 0 1 4 0" />
+      <circle cx="12" cy="19.5" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+export function GlobeIcon({ size, className }: IconProps) {
+  return (
+    <svg {...props(size)} className={className}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.3 3.6 8.5S14.4 18.1 12 20.5C9.6 18.1 8.4 15.2 8.4 12S9.6 5.9 12 3.5Z" />
+    </svg>
+  )
+}

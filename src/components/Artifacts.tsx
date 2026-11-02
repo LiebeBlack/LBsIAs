@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { formatBytes } from '../lib/artifacts'
 import type { Artifact } from '../lib/artifacts'
+import { useI18n } from '../lib/i18n'
 import { CheckIcon, CopyIcon, DownloadIcon } from './icons'
 
 function download(item: Artifact) {
@@ -17,6 +18,7 @@ function download(item: Artifact) {
 }
 
 export function Artifacts({ items }: { items: Artifact[] }) {
+  const { t } = useI18n()
   const [copied, setCopied] = useState<string | null>(null)
   if (!items.length) return null
 
@@ -31,7 +33,7 @@ export function Artifacts({ items }: { items: Artifact[] }) {
   }
 
   return (
-    <div className="artifacts" aria-label="Archivos generados">
+    <div className="artifacts" aria-label={t('artifacts.generatedAria')}>
       {items.map((item) => (
         <div className="artifact" key={item.id}>
           <span className="artifact-badge" aria-hidden="true">
@@ -46,16 +48,21 @@ export function Artifacts({ items }: { items: Artifact[] }) {
             </span>
           </span>
           <span className="artifact-tools">
-            <button type="button" className="artifact-btn" onClick={() => download(item)} title={`Descargar ${item.filename}`}>
+            <button
+              type="button"
+              className="artifact-btn"
+              onClick={() => download(item)}
+              title={t('artifacts.downloadTitle', { filename: item.filename })}
+            >
               <DownloadIcon size={13} />
-              Descargar
+              <span>{t('artifacts.download')}</span>
             </button>
             <button
               type="button"
               className="icon-btn"
               onClick={() => void copy(item)}
-              aria-label={`Copiar ${item.filename}`}
-              title="Copiar contenido"
+              aria-label={t('artifacts.copyAria', { filename: item.filename })}
+              title={t('artifacts.copyTitle')}
             >
               {copied === item.id ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
             </button>

@@ -1,3 +1,5 @@
+import type { Locale } from './i18n'
+
 export type Role = 'user' | 'assistant'
 
 export interface ChatMessage {
@@ -6,6 +8,15 @@ export interface ChatMessage {
 }
 
 export type PartStatus = 'streaming' | 'done' | 'error' | 'stopped'
+
+/** Archivo de texto o código adjunto a un mensaje del usuario. */
+export interface Attachment {
+  id: string
+  name: string
+  mime: string
+  size: number
+  content: string
+}
 
 /** Una respuesta concreta, de un modelo concreto. */
 export interface ReplyPart {
@@ -24,6 +35,7 @@ export interface UserTurn {
   role: 'user'
   content: string
   at: number
+  attachments?: Attachment[]
 }
 
 export interface AssistantTurn {
@@ -50,12 +62,16 @@ export interface ModelChoice {
 
 export type Theme = 'dark' | 'light' | 'system'
 
+/** «auto» sigue el idioma del navegador. */
+export type LocalePreference = Locale | 'auto'
+
 export interface Settings {
   /** Modelo activo del modo simple. */
   provider: string
   model: string
   theme: Theme
   accent: string
+  /** Vacío significa «usar las instrucciones predeterminadas del idioma». */
   system: string
   temperature: number
   maxTokens: number
@@ -63,6 +79,7 @@ export interface Settings {
   compare: boolean
   compareModels: ModelChoice[]
   sendOnEnter: boolean
+  locale: LocalePreference
 }
 
 export interface Workspace {

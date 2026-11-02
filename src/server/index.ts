@@ -10,13 +10,18 @@ import { Hono } from 'hono'
 import { PROVIDERS, providerById } from '../shared/providers'
 import type { Provider } from '../shared/providers'
 import type { ChatMessage } from '../shared/types'
+import { localeFromRequest, translate } from '../shared/i18n'
+import type { Locale, TranslationKey, TranslationParams } from '../shared/i18n'
 import { UpstreamError, listModels, streamChat } from './adapters'
 import type { Env } from './env'
 
 const app = new Hono<{ Bindings: Env }>()
 
 const MAX_MESSAGES = 48
-const MAX_CHARS = 16_000
+const MAX_MESSAGE_CHARS = 60_000
+const MAX_TOTAL_CHARS = 240_000
+const MAX_SYSTEM_CHARS = 16_000
+const MAX_MODEL_CHARS = 160
 const MAX_TOKENS_CAP = 8_192
 const MAX_MODELS = 400
 
@@ -28,6 +33,9 @@ const json = (data: unknown, status = 200): Response =>
       'cache-control': 'no-store',
     },
   })
+
+const tr = (locale: Locale, key: TranslationKey, params?: TranslationParams): string =>
+  translate(locale, key, params)
 
 function resolveKey(env: Env, provider: Provider, headerKey?: string): string | undefined {
   const fromHeader = headerKey?.trim()
@@ -61,37 +69,49 @@ function originAllowed(request: Request): boolean {
 
 function cleanMessages(input: unknown): ChatMessage[] {
   if (!Array.isArray(input)) return []
-  const output: ChatMessage[] = []
+  const candidate: ChatMessage[] = []
+
   for (const raw of input.slice(-MAX_MESSAGES)) {
     if (!raw || typeof raw !== 'object') continue
     const entry = raw as { role?: unknown; content?: unknown }
     const role = entry.role === 'assistant' ? 'assistant' : entry.role === 'user' ? 'user' : undefined
-    const content = typeof entry.content === 'string' ? entry.content.slice(0, MAX_CHARS) : ''
-    if (role && content.trim()) output.push({ role, content })
+    const content = typeof entry.content === 'string' ? entry.content.slice(0, MAX_MESSAGE_CHARS) : ''
+    if (role && content.trim()) candidate.push({ role, content })
+  }
+
+  const output: ChatMessage[] = []
+  let total = 0
+  for (let index = candidate.length - 1; index >= 0; index -= 1) {
+    const message = candidate[index]
+    if (total + message.content.length > MAX_TOTAL_CHARS) break
+    output.unshift(message)
+    total += message.content.length
   }
   return output
 }
 
-function describe(error: unknown): { status: number; message: string } {
+function describe(error: unknown, locale: Locale): { status: number; message: string } {
   if (error instanceof UpstreamError) {
     const hint =
       error.status === 401 || error.status === 403
-        ? 'Revisa la clave y sus permisos.'
+        ? tr(locale, 'server.hint.401')
         : error.status === 402
-          ? 'El proveedor no tiene saldo disponible.'
+          ? tr(locale, 'server.hint.402')
           : error.status === 404
-            ? 'Ese modelo no existe para tu clave.'
+            ? tr(locale, 'server.hint.404')
             : error.status === 429
-              ? 'Demasiadas peticiones o límite de gasto alcanzado.'
-              : ''
+              ? tr(locale, 'server.hint.429')
+              : error.status === 502
+                ? tr(locale, 'server.hint.502')
+                : ''
     return { status: 400, message: [error.message, hint].filter(Boolean).join(' ') }
   }
   const message = error instanceof Error ? error.message : String(error)
-  if (/abort/i.test(message)) return { status: 499, message: 'Petición cancelada.' }
-  return { status: 500, message: message || 'Error inesperado' }
+  if (/abort|cancel/i.test(message)) return { status: 499, message: tr(locale, 'server.cancelled') }
+  return { status: 500, message: message || tr(locale, 'server.unexpected') }
 }
 
-app.get('/api/health', () => json({ ok: true, providers: PROVIDERS.length }))
+app.get('/api/health', () => json({ ok: true, providers: PROVIDERS.length, uptime: 'edge' }))
 
 app.get('/api/providers', (c) => {
   const serverKeys = Object.fromEntries(
@@ -101,35 +121,42 @@ app.get('/api/providers', (c) => {
 })
 
 app.get('/api/models', async (c) => {
+  const locale = localeFromRequest(c.req.raw)
   if (!originAllowed(c.req.raw)) {
-    return json({ error: { message: 'Origen no permitido.' } }, 403)
+    return json({ error: { message: tr(locale, 'server.originDenied') } }, 403)
   }
 
   const provider = providerById(c.req.query('provider') ?? '')
-  if (!provider) return json({ error: { message: 'Proveedor desconocido.' } }, 400)
+  if (!provider) return json({ error: { message: tr(locale, 'server.unknownProvider') } }, 400)
 
   const apiKey = resolveKey(c.env, provider, c.req.header('x-provider-key'))
-  if (!apiKey) return json({ error: { code: 'missing_key', message: `Necesitas una clave de ${provider.name}.` } }, 400)
+  if (!apiKey) {
+    return json(
+      { error: { code: 'missing_key', message: tr(locale, 'server.missingKey', { provider: provider.name }) } },
+      400,
+    )
+  }
 
   try {
     const models = await listModels(provider, apiKey)
     return json({ models: models.slice(0, MAX_MODELS) })
   } catch (error) {
-    const info = describe(error)
+    const info = describe(error, locale)
     return json({ error: { message: info.message } }, info.status)
   }
 })
 
 app.post('/api/chat', async (c) => {
+  const locale = localeFromRequest(c.req.raw)
   if (!originAllowed(c.req.raw)) {
-    return json({ error: { message: 'Origen no permitido.' } }, 403)
+    return json({ error: { message: tr(locale, 'server.originDenied') } }, 403)
   }
 
   let body: unknown
   try {
     body = await c.req.json()
   } catch {
-    return json({ error: { message: 'El cuerpo debe ser JSON válido.' } }, 400)
+    return json({ error: { message: tr(locale, 'server.invalidJson') } }, 400)
   }
 
   const input = (body ?? {}) as {
@@ -142,23 +169,18 @@ app.post('/api/chat', async (c) => {
   }
 
   const provider = providerById(typeof input.provider === 'string' ? input.provider : '')
-  if (!provider) return json({ error: { message: 'Proveedor desconocido.' } }, 400)
+  if (!provider) return json({ error: { message: tr(locale, 'server.unknownProvider') } }, 400)
 
-  const model = typeof input.model === 'string' ? input.model.trim() : ''
-  if (!model) return json({ error: { message: 'Falta el modelo.' } }, 400)
+  const model = typeof input.model === 'string' ? input.model.trim().slice(0, MAX_MODEL_CHARS) : ''
+  if (!model) return json({ error: { message: tr(locale, 'server.missingModel') } }, 400)
 
   const messages = cleanMessages(input.messages)
-  if (!messages.length) return json({ error: { message: 'No hay mensajes que enviar.' } }, 400)
+  if (!messages.length) return json({ error: { message: tr(locale, 'server.noMessages') } }, 400)
 
   const apiKey = resolveKey(c.env, provider, c.req.header('x-provider-key'))
   if (!apiKey) {
     return json(
-      {
-        error: {
-          code: 'missing_key',
-          message: `Añade tu clave de ${provider.name} en Ajustes → Claves.`,
-        },
-      },
+      { error: { code: 'missing_key', message: tr(locale, 'server.missingKey', { provider: provider.name }) } },
       400,
     )
   }
@@ -192,7 +214,7 @@ app.post('/api/chat', async (c) => {
           model,
           apiKey,
           messages,
-          system: typeof input.system === 'string' ? input.system.slice(0, MAX_CHARS) : undefined,
+          system: typeof input.system === 'string' ? input.system.slice(0, MAX_SYSTEM_CHARS) : undefined,
           temperature,
           maxTokens,
           signal: c.req.raw.signal,
@@ -203,7 +225,7 @@ app.post('/api/chat', async (c) => {
         }
         send({ type: 'done', model: result.model })
       } catch (error) {
-        const info = describe(error)
+        const info = describe(error, locale)
         send({ type: 'error', message: info.message })
       } finally {
         if (open) {
@@ -224,10 +246,11 @@ app.post('/api/chat', async (c) => {
       'cache-control': 'no-store, no-transform',
       connection: 'keep-alive',
       'x-accel-buffering': 'no',
+      'x-locale': locale,
     },
   })
 })
 
-app.all('/api/*', () => json({ error: { message: 'Ruta no encontrada.' } }, 404))
+app.all('/api/*', (c) => json({ error: { message: tr(localeFromRequest(c.req.raw), 'server.routeNotFound') } }, 404))
 
 export default app

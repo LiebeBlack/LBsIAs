@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { PROVIDERS, providerById, shortModelId, targetLabel } from '../shared/providers'
 import type { ModelChoice } from '../shared/types'
 import { fetchModels } from '../lib/api'
+import { useI18n } from '../lib/i18n'
 import { PlusIcon } from './icons'
 
 interface ModelMenuProps {
@@ -11,6 +12,7 @@ interface ModelMenuProps {
 }
 
 export function ModelMenu({ value, keys, onChange }: ModelMenuProps) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [extra, setExtra] = useState<Record<string, string[]>>({})
@@ -85,7 +87,7 @@ export function ModelMenu({ value, keys, onChange }: ModelMenuProps) {
         <div className="popover" role="listbox">
           <input
             className="pop-search"
-            placeholder="Buscar modelo o proveedor…"
+            placeholder={t('models.search')}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             autoFocus
@@ -116,11 +118,11 @@ export function ModelMenu({ value, keys, onChange }: ModelMenuProps) {
                 })}
               </div>
             ))}
-            {groups.length === 0 ? <p className="pop-empty">Sin resultados para «{query}».</p> : null}
+            {groups.length === 0 ? <p className="pop-empty">{t('models.noResults', { query })}</p> : null}
           </div>
-          <button type="button" className="pop-footer" onClick={loadRealModels} disabled={loading}>
+          <button type="button" className="pop-footer" onClick={() => void loadRealModels()} disabled={loading}>
             <PlusIcon size={14} />
-            {loading ? 'Consultando claves…' : 'Cargar modelos reales con mis claves'}
+            {loading ? t('models.loading') : t('models.loadReal')}
           </button>
         </div>
       ) : null}
