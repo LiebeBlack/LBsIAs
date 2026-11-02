@@ -9,7 +9,7 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { Sidebar } from './components/Sidebar'
 import { Toasts } from './components/Toasts'
 import { fetchServerKeys, streamReply } from './lib/api'
-import { messageWithAttachments } from './lib/attachments'
+import { imagesFromAttachments, messageWithAttachments } from './lib/attachments'
 import { I18nProvider, resolveLocale } from './lib/i18n'
 import { chooseTargets, hasProviderKey, resolveTarget } from './lib/keys'
 import { isStandalone } from './lib/pwa'
@@ -231,6 +231,33 @@ export function App() {
         const controller = new AbortController()
         controllers.current.set(part.id, controller)
         const startedAt = Date.now()
+        let pending = ''
+        let flushTimer: number | null = null
+
+        // El stream puede llegar a miles de fragmentos por segundo. Se agrupan
+        // en tandas de ~33 ms para que React no repinte por cada token.
+        const flush = () => {
+          if (flushTimer !== null) {
+            window.clearTimeout(flushTimer)
+            flushTimer = null
+          }
+          if (!pending) return
+          const chunk = pending
+          pending = ''
+          patchPart(conversationId, turnId, part.id, (previous) => ({
+            ...previous,
+            content: previous.content + chunk,
+          }))
+        }
+
+        const queue = (delta: string) => {
+          pending += delta
+          if (flushTimer !== null) return
+          flushTimer = window.setTimeout(() => {
+            flushTimer = null
+            flush()
+          }, 33)
+        }
 
         void (async () => {
           try {
@@ -246,13 +273,10 @@ export function App() {
 
             for await (const event of events) {
               if (event.delta) {
-                const delta = event.delta
-                patchPart(conversationId, turnId, part.id, (previous) => ({
-                  ...previous,
-                  content: previous.content + delta,
-                }))
+                queue(event.delta)
               }
               if (event.error) {
+                flush()
                 const message = event.error
                 patchPart(conversationId, turnId, part.id, (previous) => ({
                   ...previous,
@@ -262,10 +286,12 @@ export function App() {
               }
             }
 
+            flush()
             patchPart(conversationId, turnId, part.id, (previous) =>
               previous.status === 'streaming' ? { ...previous, status: 'done', ms: Date.now() - startedAt } : previous,
             )
           } catch (error) {
+            flush()
             const aborted = error instanceof Error && error.name === 'AbortError'
             patchPart(conversationId, turnId, part.id, (previous) =>
               aborted
@@ -282,6 +308,7 @@ export function App() {
                   },
             )
           } finally {
+            if (flushTimer !== null) window.clearTimeout(flushTimer)
             controllers.current.delete(part.id)
           }
         })()
@@ -293,7 +320,7 @@ export function App() {
   const send = useCallback(
     (text: string, attachments: Attachment[]) => {
       const value = text.trim()
-      if (!value) return
+      if (!value && !attachments.length) return
 
       const currentSettings = workspaceRef.current.settings
       const requested: ModelChoice[] =
@@ -330,9 +357,14 @@ export function App() {
       const currentWorkspace = workspaceRef.current
       const existing = currentWorkspace.conversations.find((conversation) => conversation.id === currentWorkspace.activeId)
       const conversationId = existing?.id ?? uid()
+      const images = imagesFromAttachments(attachments)
       const history = [
         ...(existing ? toChatMessages(existing.turns) : []),
-        { role: 'user' as const, content: messageWithAttachments(value, attachments) },
+        {
+          role: 'user' as const,
+          content: messageWithAttachments(value, attachments),
+          ...(images ? { images } : {}),
+        },
       ]
 
       const userTurn: UserTurn = {
@@ -356,7 +388,7 @@ export function App() {
         if (index === -1) {
           const conversation: Conversation = {
             id: conversationId,
-            title: titleFrom(value),
+            title: titleFrom(value || attachments[0]?.name || 'Nuevo chat'),
             turns: [userTurn, assistantTurn],
             createdAt: Date.now(),
             updatedAt: Date.now(),

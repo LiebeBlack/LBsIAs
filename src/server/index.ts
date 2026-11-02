@@ -9,7 +9,7 @@
 import { Hono } from 'hono'
 import { PROVIDERS, providerById } from '../shared/providers'
 import type { Provider } from '../shared/providers'
-import type { ChatMessage } from '../shared/types'
+import type { ChatImage, ChatMessage } from '../shared/types'
 import { localeFromRequest, translate } from '../shared/i18n'
 import type { Locale, TranslationKey, TranslationParams } from '../shared/i18n'
 import { UpstreamError, listModels, streamChat } from './adapters'
@@ -19,6 +19,9 @@ const app = new Hono<{ Bindings: Env }>()
 
 const MAX_MODEL_CHARS = 160
 const MAX_MODELS = 400
+const MAX_IMAGES_PER_MESSAGE = 4
+const MAX_IMAGE_CHARS = 8_000_000
+const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
 const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), {
@@ -68,10 +71,26 @@ function cleanMessages(input: unknown): ChatMessage[] {
 
   for (const raw of input) {
     if (!raw || typeof raw !== 'object') continue
-    const entry = raw as { role?: unknown; content?: unknown }
+    const entry = raw as { role?: unknown; content?: unknown; images?: unknown }
     const role = entry.role === 'assistant' ? 'assistant' : entry.role === 'user' ? 'user' : undefined
     const content = typeof entry.content === 'string' ? entry.content : ''
-    if (role && content.trim()) output.push({ role, content })
+    const images: ChatImage[] = []
+
+    if (Array.isArray(entry.images)) {
+      for (const rawImage of entry.images) {
+        if (!rawImage || typeof rawImage !== 'object') continue
+        const image = rawImage as { mime?: unknown; data?: unknown }
+        const mime = typeof image.mime === 'string' ? image.mime.toLowerCase() : ''
+        const data = typeof image.data === 'string' ? image.data : ''
+        if (!IMAGE_MIMES.has(mime) || !data || data.length > MAX_IMAGE_CHARS) continue
+        images.push({ mime, data })
+        if (images.length >= MAX_IMAGES_PER_MESSAGE) break
+      }
+    }
+
+    if (role && (content.trim() || images.length)) {
+      output.push({ role, content, ...(images.length ? { images } : {}) })
+    }
   }
 
   return output

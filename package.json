@@ -1,7 +1,7 @@
 {
   "name": "nexo",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.2.0",
   "type": "module",
   "description": "Nexo by LBs IAs: un chat privado y bilingüe para todos los modelos de IA.",
   "scripts": {

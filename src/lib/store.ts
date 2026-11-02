@@ -1,6 +1,6 @@
 import type { ChatMessage, Conversation, PartStatus, ReplyPart, Turn, Workspace } from '../shared/types'
 import { DEFAULT_PROVIDER } from '../shared/providers'
-import { messageWithAttachments } from './attachments'
+import { imagesFromAttachments, isSupportedImageMime, messageWithAttachments } from './attachments'
 import { translate } from '../shared/i18n'
 import type { Locale } from '../shared/i18n'
 
@@ -39,13 +39,39 @@ function repairAttachments(value: unknown): Turn extends never ? never : NonNull
     if (!entry || typeof entry !== 'object') return []
     const row = entry as Record<string, unknown>
     if (typeof row.name !== 'string' || typeof row.content !== 'string') return []
+    const mime = typeof row.mime === 'string' ? row.mime.slice(0, 120) : 'text/plain'
+    const rawKind = row.kind
+    let kind: 'text' | 'image' | 'file' =
+      rawKind === 'text' || rawKind === 'image' || rawKind === 'file'
+        ? rawKind
+        : mime.startsWith('image/')
+          ? 'image'
+          : row.content
+            ? 'text'
+            : 'file'
+    let content = row.content
+
+    // Los datos importados no son de confianza: una imagen corrupta o enorme
+    // se conserva como referencia, nunca como base64 a medio cortar.
+    if (kind === 'image') {
+      if (!isSupportedImageMime(mime) || content.length > 8_000_000) {
+        kind = 'file'
+        content = ''
+      }
+    } else if (kind === 'text') {
+      content = content.slice(0, 2_000_000)
+    } else {
+      content = ''
+    }
+
     return [
       {
         id: typeof row.id === 'string' ? row.id : uid(),
         name: row.name.slice(0, 120),
-        mime: typeof row.mime === 'string' ? row.mime : 'text/plain',
-        size: typeof row.size === 'number' && Number.isFinite(row.size) ? row.size : row.content.length,
-        content: row.content.slice(0, 48_000),
+        mime,
+        size: typeof row.size === 'number' && Number.isFinite(row.size) ? row.size : content.length,
+        content,
+        kind,
       },
     ]
   })
@@ -212,8 +238,12 @@ export function toChatMessages(turns: Turn[]): ChatMessage[] {
   const messages: ChatMessage[] = []
   for (const turn of turns) {
     if (turn.role === 'user') {
-      const content = messageWithAttachments(turn.content, turn.attachments ?? [])
-      if (content.trim()) messages.push({ role: 'user', content })
+      const attachments = turn.attachments ?? []
+      const content = messageWithAttachments(turn.content, attachments)
+      const images = imagesFromAttachments(attachments)
+      if (content.trim() || images) {
+        messages.push({ role: 'user', content, ...(images ? { images } : {}) })
+      }
       continue
     }
     const winner = turn.parts.find((part) => part.status === 'done' && part.content.trim())

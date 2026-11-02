@@ -11,7 +11,13 @@ import {
 import { PROVIDERS, providerById, shortModelId, targetLabel } from '../shared/providers'
 import type { Attachment, Conversation, ModelChoice, ReplyPart, Settings } from '../shared/types'
 import { extractArtifacts, formatBytes } from '../lib/artifacts'
-import { MAX_ATTACHMENTS, readAttachment, isTotalTooLong, ATTACHMENT_ACCEPT } from '../lib/attachments'
+import {
+  ATTACHMENT_ACCEPT,
+  MAX_ATTACHMENTS,
+  attachmentDataUrl,
+  isTotalTooLong,
+  readAttachment,
+} from '../lib/attachments'
 import type { AttachmentError } from '../lib/attachments'
 import { useI18n } from '../lib/i18n'
 import { availableProviders, hasProviderKey } from '../lib/keys'
@@ -224,7 +230,7 @@ export const ChatView = forwardRef<ChatComposerHandle, ChatViewProps>(function C
 
   const submit = () => {
     const value = text.trim()
-    if (!value || streaming) return
+    if ((!value && !attachments.length) || streaming) return
     if (!keysReady) {
       toast(t('chat.keysChecking'), 'ok')
       return
@@ -430,17 +436,38 @@ export const ChatView = forwardRef<ChatComposerHandle, ChatViewProps>(function C
               turn.role === 'user' ? (
                 <div key={turn.id} className="turn user">
                   <div className="user-block">
-                    {turn.attachments?.length ? (
-                      <div className="bubble-files" aria-label={t('chat.filesLabel')}>
-                        {turn.attachments.map((file) => (
-                          <span className="file-pill" key={file.id}>
-                            <FileIcon size={12} />
-                            <span>{file.name}</span>
-                          </span>
-                        ))}
+                    {turn.attachments?.some((file) => file.kind === 'image') ? (
+                      <div className="bubble-images" aria-label={t('chat.filesLabel')}>
+                        {turn.attachments
+                          .filter((file) => file.kind === 'image')
+                          .map((file) => (
+                            <img
+                              key={file.id}
+                              className="bubble-image"
+                              src={attachmentDataUrl(file)}
+                              alt={file.name}
+                              loading="lazy"
+                            />
+                          ))}
                       </div>
                     ) : null}
-                    <div className="bubble">{turn.content}</div>
+                    {turn.attachments?.some((file) => file.kind !== 'image') ? (
+                      <div className="bubble-files" aria-label={t('chat.filesLabel')}>
+                        {turn.attachments
+                          .filter((file) => file.kind !== 'image')
+                          .map((file) => (
+                            <span
+                              className="file-pill"
+                              key={file.id}
+                              title={file.kind === 'file' ? t('chat.attachmentUnreadable') : file.name}
+                            >
+                              <FileIcon size={12} />
+                              <span>{file.name}</span>
+                            </span>
+                          ))}
+                      </div>
+                    ) : null}
+                    {turn.content ? <div className="bubble">{turn.content}</div> : null}
                   </div>
                 </div>
               ) : (
@@ -525,7 +552,11 @@ export const ChatView = forwardRef<ChatComposerHandle, ChatViewProps>(function C
             <div className="attachments" aria-label={t('chat.filesLabel')}>
               {attachments.map((file) => (
                 <span className="attachment" key={file.id}>
-                  <FileIcon size={13} />
+                  {file.kind === 'image' ? (
+                    <img className="attachment-thumb" src={attachmentDataUrl(file)} alt="" />
+                  ) : (
+                    <FileIcon size={13} />
+                  )}
                   <span className="attachment-name" title={file.name}>
                     {file.name}
                   </span>
@@ -608,7 +639,7 @@ export const ChatView = forwardRef<ChatComposerHandle, ChatViewProps>(function C
                 type="button"
                 className="send"
                 onClick={submit}
-                disabled={!text.trim() || !online || !keysReady}
+                  disabled={(!text.trim() && !attachments.length) || !online || !keysReady}
                 aria-label={t('chat.sendAria')}
                 title={
                   !online

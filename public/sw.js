@@ -2,7 +2,7 @@
    Guarda la interfaz y los assets estáticos para que la app abra sin conexión.
    Nunca cachea /api: las respuestas y las claves no se almacenan aquí. */
 
-const VERSION = 'nexo-v3'
+const VERSION = 'nexo-v4'
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg', '/icon-192.png', '/icon-512.png']
 
 /** Cachea el shell y descubre los assets con hash que referencia el HTML. */

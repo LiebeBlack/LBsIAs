@@ -111,13 +111,54 @@ async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string
   }
 }
 
+function openAIMessage(message: ChatMessage): Record<string, unknown> {
+  if (!message.images?.length) return { role: message.role, content: message.content }
+
+  const parts: Array<Record<string, unknown>> = []
+  if (message.content) parts.push({ type: 'text', text: message.content })
+  for (const image of message.images) {
+    parts.push({
+      type: 'image_url',
+      image_url: { url: `data:${image.mime};base64,${image.data}` },
+    })
+  }
+  return { role: message.role, content: parts }
+}
+
+function anthropicMessage(message: ChatMessage): Record<string, unknown> {
+  if (!message.images?.length) return { role: message.role, content: message.content }
+
+  return {
+    role: message.role,
+    content: [
+      ...(message.content ? [{ type: 'text', text: message.content }] : []),
+      ...message.images.map((image) => ({
+        type: 'image',
+        source: { type: 'base64', media_type: image.mime, data: image.data },
+      })),
+    ],
+  }
+}
+
+function geminiParts(message: ChatMessage): Array<Record<string, unknown>> {
+  const parts: Array<Record<string, unknown>> = []
+  if (message.content) parts.push({ text: message.content })
+  for (const image of message.images ?? []) {
+    parts.push({ inline_data: { mime_type: image.mime, data: image.data } })
+  }
+  return parts
+}
+
 async function* openAICompatible(input: StreamRequest): AsyncGenerator<string> {
   const { provider, model, apiKey, system, temperature, maxTokens, signal } = input
   const url = `${provider.baseUrl}/chat/completions`
 
   const payload: Record<string, unknown> = {
     model,
-    messages: system ? [{ role: 'system', content: system }, ...input.messages] : input.messages,
+    messages: [
+      ...(system ? [{ role: 'system', content: system }] : []),
+      ...input.messages.map(openAIMessage),
+    ],
     stream: true,
   }
   if (typeof temperature === 'number') payload.temperature = temperature
@@ -184,7 +225,7 @@ async function* anthropic(input: StreamRequest): AsyncGenerator<string> {
       model,
       max_tokens: maxTokens && maxTokens > 0 ? maxTokens : anthropicOutputLimit(model),
       stream: true,
-      messages: input.messages.map((message) => ({ role: message.role, content: message.content })),
+      messages: input.messages.map(anthropicMessage),
       ...(system ? { system } : {}),
       ...(typeof temperature === 'number' ? { temperature } : {}),
     }),
@@ -221,7 +262,7 @@ async function* gemini(input: StreamRequest): AsyncGenerator<string> {
     body: JSON.stringify({
       contents: input.messages.map((message) => ({
         role: message.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: message.content }],
+        parts: geminiParts(message),
       })),
       ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
       generationConfig: {

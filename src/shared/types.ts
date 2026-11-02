@@ -2,20 +2,29 @@ import type { Locale } from './i18n'
 
 export type Role = 'user' | 'assistant'
 
+/** Imagen ya codificada en base64, lista para un proveedor multimodal. */
+export interface ChatImage {
+  mime: string
+  data: string
+}
+
 export interface ChatMessage {
   role: Role
   content: string
+  images?: ChatImage[]
 }
 
 export type PartStatus = 'streaming' | 'done' | 'error' | 'stopped'
 
-/** Archivo de texto o código adjunto a un mensaje del usuario. */
+/** Archivo adjunto a un mensaje del usuario. */
 export interface Attachment {
   id: string
   name: string
   mime: string
   size: number
+  /** Texto plano, base64 de una imagen o vacío en archivos binarios no legibles. */
   content: string
+  kind: 'text' | 'image' | 'file'
 }
 
 /** Una respuesta concreta, de un modelo concreto. */
