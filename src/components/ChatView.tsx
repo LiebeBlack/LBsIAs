@@ -8,12 +8,13 @@ import {
   useRef,
   useState,
 } from 'react'
-import { providerById, shortModelId, targetLabel } from '../shared/providers'
+import { PROVIDERS, providerById, shortModelId, targetLabel } from '../shared/providers'
 import type { Attachment, Conversation, ModelChoice, ReplyPart, Settings } from '../shared/types'
 import { extractArtifacts, formatBytes } from '../lib/artifacts'
 import { MAX_ATTACHMENTS, readAttachment, isTotalTooLong, ATTACHMENT_ACCEPT } from '../lib/attachments'
 import type { AttachmentError } from '../lib/attachments'
 import { useI18n } from '../lib/i18n'
+import { availableProviders, hasProviderKey } from '../lib/keys'
 import { toast } from '../lib/toast'
 import { Artifacts } from './Artifacts'
 import { ModelMenu } from './ModelMenu'
@@ -46,6 +47,8 @@ interface ChatViewProps {
   settings: Settings
   keys: Record<string, string>
   serverKeys: Record<string, boolean>
+  hasAnyKey: boolean
+  keysReady: boolean
   streaming: boolean
   online: boolean
   onSend(text: string, attachments: Attachment[]): void
@@ -66,6 +69,8 @@ export const ChatView = forwardRef<ChatComposerHandle, ChatViewProps>(function C
     settings,
     keys,
     serverKeys,
+    hasAnyKey,
+    keysReady,
     streaming,
     online,
     onSend,
@@ -220,6 +225,15 @@ export const ChatView = forwardRef<ChatComposerHandle, ChatViewProps>(function C
   const submit = () => {
     const value = text.trim()
     if (!value || streaming) return
+    if (!keysReady) {
+      toast(t('chat.keysChecking'), 'ok')
+      return
+    }
+    if (!hasAnyKey) {
+      toast(t('chat.noKey'), 'error')
+      onOpenSettings()
+      return
+    }
     setText('')
     const files = attachments
     setAttachments([])
@@ -229,10 +243,46 @@ export const ChatView = forwardRef<ChatComposerHandle, ChatViewProps>(function C
   }
 
   const activeProvider = providerById(settings.provider)
-  const missingKey = !settings.compare && !keys[settings.provider] && !serverKeys[settings.provider]
+  const available = availableProviders(keys, serverKeys)
+  const alternative = settings.compare
+    ? undefined
+    : PROVIDERS.find(
+        (provider) => provider.id !== settings.provider && available.includes(provider.id),
+      )
+  const missingKey =
+    keysReady && !settings.compare && !hasProviderKey(settings.provider, keys, serverKeys)
   const compareMissing =
+    keysReady &&
     settings.compare &&
-    settings.compareModels.some((slot) => !keys[slot.provider] && !serverKeys[slot.provider])
+    settings.compareModels.some((slot) => !hasProviderKey(slot.provider, keys, serverKeys))
+
+  const compareTargets = settings.compareModels
+  const firstCompare = compareTargets[0]
+  const apiValue = settings.compare
+    ? firstCompare
+      ? targetLabel(firstCompare.provider, firstCompare.model) +
+        (compareTargets.length > 1 ? ' +' + (compareTargets.length - 1) : '')
+      : p('chat.compareModels', 0)
+    : targetLabel(settings.provider, settings.model)
+  const apiTitle = settings.compare
+    ? compareTargets.map((slot) => targetLabel(slot.provider, slot.model)).join(' · ')
+    : apiValue
+  const keyReady = settings.compare
+    ? compareTargets.length > 0 &&
+      compareTargets.every((slot) => hasProviderKey(slot.provider, keys, serverKeys))
+    : hasProviderKey(settings.provider, keys, serverKeys)
+  const keyState = !keysReady ? 'checking' : keyReady ? 'ok' : 'missing'
+  const keyLabel = !keysReady
+    ? t('chat.keysChecking')
+    : settings.compare
+      ? keyReady
+        ? t('chat.keysReady')
+        : t('chat.keyMissing')
+      : keys[settings.provider]
+        ? t('chat.keySaved')
+        : serverKeys[settings.provider]
+          ? t('chat.keyServer')
+          : t('chat.keyMissing')
 
   const statusLabel = (part: ReplyPart): string => {
     switch (part.status) {
@@ -300,16 +350,44 @@ export const ChatView = forwardRef<ChatComposerHandle, ChatViewProps>(function C
         </div>
       </header>
 
+      <div className="api-model-bar" aria-live="polite">
+        <span className="dot" style={{ background: activeProvider?.color ?? 'var(--muted)' }} />
+        <span className="api-model-label">{t('chat.apiModel')}</span>
+        <strong className="api-model-value" title={apiTitle}>
+          {apiValue}
+        </strong>
+        <span className={`api-model-state ${keyState}`}>{keyLabel}</span>
+      </div>
+
       {(missingKey || compareMissing) && (
         <div className="notice">
           <span>
             {compareMissing
               ? t('chat.missingCompareKey')
               : t('chat.missingKey', { provider: activeProvider?.name ?? settings.provider })}
+            {missingKey && alternative
+              ? ' ' + t('chat.savedKeyAvailable', { provider: alternative.name })
+              : ''}
           </span>
-          <button type="button" className="notice-btn" onClick={onOpenSettings}>
-            {t('chat.addKey')}
-          </button>
+          <div className="notice-actions">
+            {missingKey && alternative ? (
+              <button
+                type="button"
+                className="notice-btn ghost"
+                onClick={() =>
+                  onSelectModel({
+                    provider: alternative.id,
+                    model: alternative.models[0] ?? settings.model,
+                  })
+                }
+              >
+                {t('chat.useProvider', { provider: alternative.name })}
+              </button>
+            ) : null}
+            <button type="button" className="notice-btn" onClick={onOpenSettings}>
+              {t('chat.addKey')}
+            </button>
+          </div>
         </div>
       )}
 
@@ -405,7 +483,16 @@ export const ChatView = forwardRef<ChatComposerHandle, ChatViewProps>(function C
                               <Markdown text={part.content} />
                             </Suspense>
                           ) : null}
-                          {!part.content && part.status === 'streaming' ? <span className="thinking">{t('chat.thinking')}</span> : null}
+                          {!part.content && part.status === 'streaming' ? (
+  <span className="thinking" role="status" aria-live="polite">
+    <span className="thinking-dots" aria-hidden="true">
+      <span />
+      <span />
+      <span />
+    </span>
+    {t('chat.thinking')}
+  </span>
+) : null}
                           {part.status === 'streaming' && part.content ? <span className="caret" aria-hidden="true" /> : null}
                           <Artifacts items={artifacts} />
                           {part.error ? <p className="part-error">{part.error}</p> : null}
@@ -521,9 +608,15 @@ export const ChatView = forwardRef<ChatComposerHandle, ChatViewProps>(function C
                 type="button"
                 className="send"
                 onClick={submit}
-                disabled={!text.trim() || !online}
+                disabled={!text.trim() || !online || !keysReady}
                 aria-label={t('chat.sendAria')}
-                title={!online ? t('sidebar.offline') : t('chat.sendAria')}
+                title={
+                  !online
+                    ? t('sidebar.offline')
+                    : !keysReady
+                      ? t('chat.keysChecking')
+                      : t('chat.sendAria')
+                }
               >
                 <SendIcon size={17} />
               </button>

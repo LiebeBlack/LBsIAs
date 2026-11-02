@@ -11,6 +11,7 @@ import { Toasts } from './components/Toasts'
 import { fetchServerKeys, streamReply } from './lib/api'
 import { messageWithAttachments } from './lib/attachments'
 import { I18nProvider, resolveLocale } from './lib/i18n'
+import { chooseTargets, hasProviderKey, resolveTarget } from './lib/keys'
 import { isStandalone } from './lib/pwa'
 import type { InstallPromptEvent } from './lib/pwa'
 import { BUILTIN_PROMPTS, loadPrompts, promptCount, savePrompts } from './lib/prompts'
@@ -33,7 +34,7 @@ import {
   toMarkdown,
   uid,
 } from './lib/store'
-import { PROVIDERS, shortModelId } from './shared/providers'
+import { PROVIDERS, providerById, shortModelId } from './shared/providers'
 import { defaultSystemPrompt, translate } from './shared/i18n'
 import type { Attachment, Conversation, ModelChoice, ReplyPart, Settings, UserTurn, Workspace } from './shared/types'
 import type { AssistantTurn } from './shared/types'
@@ -59,6 +60,7 @@ export function App() {
   const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace())
   const [keys, setKeys] = useState<Record<string, string>>(() => loadKeys())
   const [serverKeys, setServerKeys] = useState<Record<string, boolean>>({})
+  const [serverKeysLoaded, setServerKeysLoaded] = useState(false)
   const [prompts, setPrompts] = useState<Prompt[]>(() => loadPrompts())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -72,6 +74,7 @@ export function App() {
   const locale = useMemo(() => resolveLocale(workspace.settings.locale), [workspace.settings.locale])
   const workspaceRef = useRef(workspace)
   const keysRef = useRef(keys)
+  const serverKeysRef = useRef(serverKeys)
   const localeRef = useRef(locale)
   const controllers = useRef(new Map<string, AbortController>())
   const chatRef = useRef<ChatComposerHandle>(null)
@@ -84,6 +87,10 @@ export function App() {
     keysRef.current = keys
     saveKeys(keys)
   }, [keys])
+
+  useEffect(() => {
+    serverKeysRef.current = serverKeys
+  }, [serverKeys])
 
   useEffect(() => {
     localeRef.current = locale
@@ -99,7 +106,17 @@ export function App() {
   }, [prompts])
 
   useEffect(() => {
-    void fetchServerKeys().then(setServerKeys)
+    let active = true
+    void fetchServerKeys()
+      .then((next) => {
+        if (active) setServerKeys(next)
+      })
+      .finally(() => {
+        if (active) setServerKeysLoaded(true)
+      })
+    return () => {
+      active = false
+    }
   }, [])
 
   const { theme, accent } = workspace.settings
@@ -192,6 +209,16 @@ export function App() {
     [],
   )
 
+  const applyChoice = useCallback((choice: ModelChoice) => {
+    const next: Workspace = {
+      ...workspaceRef.current,
+      settings: { ...workspaceRef.current.settings, provider: choice.provider, model: choice.model },
+    }
+    workspaceRef.current = next
+    setWorkspace(next)
+    saveWorkspace(next)
+  }, [])
+
   const runReplies = useCallback(
     (conversationId: string, turnId: string, parts: ReplyPart[], history: Parameters<typeof streamReply>[0]['messages'], targets: ModelChoice[]) => {
       const currentSettings = workspaceRef.current.settings
@@ -269,10 +296,36 @@ export function App() {
       if (!value) return
 
       const currentSettings = workspaceRef.current.settings
-      const targets: ModelChoice[] =
+      const requested: ModelChoice[] =
         currentSettings.compare && currentSettings.compareModels.length > 0
           ? currentSettings.compareModels
           : [{ provider: currentSettings.provider, model: currentSettings.model }]
+      const plan = chooseTargets(
+        requested,
+        currentSettings.compare,
+        { provider: currentSettings.provider, model: currentSettings.model },
+        keysRef.current,
+        serverKeysRef.current,
+      )
+      const targets = plan.targets
+
+      if (!targets.length) {
+        toast(translate(localeRef.current, 'chat.noKey'), 'error')
+        return
+      }
+      if (plan.switched) {
+        applyChoice(plan.switched)
+        const provider = providerById(plan.switched.provider)
+        toast(
+          translate(localeRef.current, 'toast.autoModel', {
+            provider: provider?.name ?? plan.switched.provider,
+            model: plan.switched.model,
+          }),
+          'ok',
+        )
+      } else if (plan.skipped > 0 && targets.length > 1) {
+        toast(translate(localeRef.current, 'toast.skippedModels'), 'ok')
+      }
 
       const currentWorkspace = workspaceRef.current
       const existing = currentWorkspace.conversations.find((conversation) => conversation.id === currentWorkspace.activeId)
@@ -323,7 +376,7 @@ export function App() {
 
       runReplies(conversationId, assistantTurn.id, parts, history, targets)
     },
-    [runReplies],
+    [applyChoice, runReplies],
   )
 
   const stop = useCallback(() => {
@@ -348,12 +401,36 @@ export function App() {
           ? replaced.parts.map((part) => ({ provider: part.provider, model: part.model }))
           : []
       const settingsNow = current.settings
-      const targets = previousTargets.length
+      const requested = previousTargets.length
         ? previousTargets
         : settingsNow.compare
           ? settingsNow.compareModels
           : [{ provider: settingsNow.provider, model: settingsNow.model }]
-      if (!targets.length) return
+      const plan = chooseTargets(
+        requested,
+        previousTargets.length > 1 || settingsNow.compare,
+        { provider: settingsNow.provider, model: settingsNow.model },
+        keysRef.current,
+        serverKeysRef.current,
+      )
+      const targets = plan.targets
+      if (!targets.length) {
+        toast(translate(localeRef.current, 'chat.noKey'), 'error')
+        return
+      }
+      if (plan.switched) {
+        applyChoice(plan.switched)
+        const provider = providerById(plan.switched.provider)
+        toast(
+          translate(localeRef.current, 'toast.autoModel', {
+            provider: provider?.name ?? plan.switched.provider,
+            model: plan.switched.model,
+          }),
+          'ok',
+        )
+      } else if (plan.skipped > 0 && targets.length > 1) {
+        toast(translate(localeRef.current, 'toast.skippedModels'), 'ok')
+      }
 
       const parts: ReplyPart[] = targets.map((target) => ({
         id: uid(),
@@ -380,7 +457,7 @@ export function App() {
 
       runReplies(conversation.id, turnIdNext, parts, history, targets)
     },
-    [runReplies],
+    [applyChoice, runReplies],
   )
 
   const newChat = useCallback(() => {
@@ -418,6 +495,51 @@ export function App() {
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setWorkspace((current) => ({ ...current, settings: { ...current.settings, ...patch } }))
   }, [])
+
+  const updateKeys = useCallback((next: Record<string, string>) => {
+    const clean: Record<string, string> = {}
+    for (const [provider, value] of Object.entries(next)) {
+      const key = value.trim()
+      if (key) clean[provider] = key
+    }
+    keysRef.current = clean
+    setKeys(clean)
+    saveKeys(clean)
+  }, [])
+
+  const autoRouted = useRef('')
+
+  useEffect(() => {
+    if (settingsOpen || workspace.settings.compare) return
+    const choice = { provider: workspace.settings.provider, model: workspace.settings.model }
+    if (hasProviderKey(choice.provider, keys, serverKeys)) {
+      autoRouted.current = ''
+      return
+    }
+    const resolved = resolveTarget(choice, keys, serverKeys)
+    if (!resolved.switched) return
+    const signature =
+      choice.provider + ':' + choice.model + '->' + resolved.choice.provider + ':' + resolved.choice.model
+    if (autoRouted.current === signature) return
+    autoRouted.current = signature
+    applyChoice(resolved.choice)
+    const provider = providerById(resolved.choice.provider)
+    toast(
+      translate(localeRef.current, 'toast.autoModel', {
+        provider: provider?.name ?? resolved.choice.provider,
+        model: resolved.choice.model,
+      }),
+      'ok',
+    )
+  }, [
+    applyChoice,
+    keys,
+    serverKeys,
+    settingsOpen,
+    workspace.settings.compare,
+    workspace.settings.model,
+    workspace.settings.provider,
+  ])
 
   const clearEverything = useCallback(() => {
     controllers.current.forEach((controller) => controller.abort())
@@ -553,6 +675,14 @@ export function App() {
   }, [])
 
   const totalPrompts = promptCount(prompts)
+
+  const usableProviderIds = useMemo(
+    () =>
+      PROVIDERS.filter((provider) => hasProviderKey(provider.id, keys, serverKeys)).map(
+        (provider) => provider.id,
+      ),
+    [keys, serverKeys],
+  )
 
   const paletteItems = useMemo<PaletteItem[]>(() => {
     const items: PaletteItem[] = []
@@ -700,7 +830,7 @@ export function App() {
           conversations={workspace.conversations}
           activeId={workspace.activeId}
           open={sidebarOpen}
-          keyCount={Object.keys(keys).length}
+          keyCount={usableProviderIds.length}
           promptCount={totalPrompts}
           online={online}
           onSelect={selectChat}
@@ -719,6 +849,8 @@ export function App() {
           settings={workspace.settings}
           keys={keys}
           serverKeys={serverKeys}
+          hasAnyKey={usableProviderIds.length > 0}
+          keysReady={serverKeysLoaded}
           streaming={streaming}
           online={online}
           onSend={send}
@@ -743,7 +875,7 @@ export function App() {
           installed={installed}
           canInstall={Boolean(installEvent) && !installed}
           onChange={updateSettings}
-          onKeys={setKeys}
+          onKeys={updateKeys}
           onClose={() => setSettingsOpen(false)}
           onClear={clearEverything}
           onExport={exportData}

@@ -17,12 +17,7 @@ import type { Env } from './env'
 
 const app = new Hono<{ Bindings: Env }>()
 
-const MAX_MESSAGES = 48
-const MAX_MESSAGE_CHARS = 60_000
-const MAX_TOTAL_CHARS = 240_000
-const MAX_SYSTEM_CHARS = 16_000
 const MAX_MODEL_CHARS = 160
-const MAX_TOKENS_CAP = 8_192
 const MAX_MODELS = 400
 
 const json = (data: unknown, status = 200): Response =>
@@ -69,24 +64,16 @@ function originAllowed(request: Request): boolean {
 
 function cleanMessages(input: unknown): ChatMessage[] {
   if (!Array.isArray(input)) return []
-  const candidate: ChatMessage[] = []
+  const output: ChatMessage[] = []
 
-  for (const raw of input.slice(-MAX_MESSAGES)) {
+  for (const raw of input) {
     if (!raw || typeof raw !== 'object') continue
     const entry = raw as { role?: unknown; content?: unknown }
     const role = entry.role === 'assistant' ? 'assistant' : entry.role === 'user' ? 'user' : undefined
-    const content = typeof entry.content === 'string' ? entry.content.slice(0, MAX_MESSAGE_CHARS) : ''
-    if (role && content.trim()) candidate.push({ role, content })
+    const content = typeof entry.content === 'string' ? entry.content : ''
+    if (role && content.trim()) output.push({ role, content })
   }
 
-  const output: ChatMessage[] = []
-  let total = 0
-  for (let index = candidate.length - 1; index >= 0; index -= 1) {
-    const message = candidate[index]
-    if (total + message.content.length > MAX_TOTAL_CHARS) break
-    output.unshift(message)
-    total += message.content.length
-  }
   return output
 }
 
@@ -190,8 +177,8 @@ app.post('/api/chat', async (c) => {
       ? Math.min(2, Math.max(0, input.temperature))
       : undefined
   const maxTokens =
-    typeof input.maxTokens === 'number' && Number.isFinite(input.maxTokens)
-      ? Math.min(MAX_TOKENS_CAP, Math.max(64, Math.round(input.maxTokens)))
+    typeof input.maxTokens === 'number' && Number.isFinite(input.maxTokens) && input.maxTokens > 0
+      ? Math.max(1, Math.round(input.maxTokens))
       : undefined
 
   const encoder = new TextEncoder()
@@ -214,7 +201,7 @@ app.post('/api/chat', async (c) => {
           model,
           apiKey,
           messages,
-          system: typeof input.system === 'string' ? input.system.slice(0, MAX_SYSTEM_CHARS) : undefined,
+          system: typeof input.system === 'string' ? input.system : undefined,
           temperature,
           maxTokens,
           signal: c.req.raw.signal,

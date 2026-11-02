@@ -6,6 +6,13 @@ Mistral, DeepSeek y xAI desde la misma conversación, con **tus propias claves**
 
 - Streaming token a token (SSE) en los tres protocolos de proveedor.
 - Cambio de modelo en caliente, sin perder la conversación.
+- **Respuestas completas**: Nexo renderiza todo el texto que devuelve la IA, sin
+  recortes ni bloques colapsados. El único límite es el contexto del proveedor.
+- **Claves persistentes**: se guardan al escribir y se reutilizan al volver.
+- **Enrutado automático**: si el modelo activo no tiene clave, Nexo usa el
+  primer proveedor con clave disponible y lo avisa.
+- **Modelo API visible** sobre la conversación, con el estado de la clave.
+- Animación de “Pensando” con tres puntos, respetando `prefers-reduced-motion`.
 - **Modo comparación**: la misma pregunta a 2 o 3 modelos, en columnas.
 - **Biblioteca de prompts**: instrucciones incluidas en ES/EN y prompts propios.
 - **Adjuntos de texto y código** con vista previa, límites y contexto para el modelo.
@@ -22,9 +29,9 @@ Mistral, DeepSeek y xAI desde la misma conversación, con **tus propias claves**
 
 | Capa | Tecnología | Por qué |
 | --- | --- | --- |
-| Cliente | React 19 + TypeScript + Vite | Un solo bundle, sin framework de UI extra |
+| Cliente | React 19.3 + TypeScript 7 + Vite 8 | Un solo bundle, sin framework de UI extra |
 | Estilos | CSS propio con tokens | Sin Tailwind ni runtime de estilos |
-| API | Hono sobre `fetch` | Corre igual en Workers y en Bun |
+| API | Hono 4 sobre `fetch` | Corre igual en Workers y en Bun |
 | Streaming | SSE nativo | Sin websockets ni servidores de estado |
 | Persistencia | `localStorage` tolerante | Sin cuentas ni base de datos |
 | Despliegue | Cloudflare Workers + assets | Sin origen frío, sin contenedores |
@@ -51,12 +58,15 @@ verificar la conexión y listar sus modelos reales.
 
 ### Claves: navegador o servidor
 
-Las claves que pegas se guardan en `localStorage` y viajan en la cabecera
-`x-provider-key` de cada petición. El servidor las reenvía al proveedor en el
-momento y no las escribe en disco ni en logs. Si prefieres que el dueño del
-despliegue pague las llamadas, define variables de entorno
-(`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …): los usuarios pueden dejar el campo
-vacío y la app usará la del servidor.
+Las claves se guardan automáticamente en `localStorage` al escribirlas y viajan
+en la cabecera `x-provider-key` de cada petición. El servidor las reenvía al
+proveedor en el momento y no las escribe en disco ni en logs. Si el modelo
+activo no tiene clave, Nexo reutiliza la de otro proveedor disponible y cambia
+a ese modelo automáticamente; el aviso indica qué modelo se está usando.
+
+Si prefieres que el dueño del despliegue pague las llamadas, define variables
+de entorno (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …): los usuarios pueden
+dejar el campo vacío y la app usará la del servidor.
 
 ## Atajos
 
@@ -135,6 +145,7 @@ src/
   components/            Sidebar, ChatView, ModelMenu, SettingsDialog, Markdown,
                          Artifacts, CommandPalette, SearchOverlay, PromptDialog
   lib/i18n.tsx           contexto de idioma para React
+  lib/keys.ts            resolución de claves y proveedor/modelo utilizable
   lib/store.ts           localStorage tolerante, reparación, sanitización y export
   lib/attachments.ts     lectura y límites de archivos de texto/código
   lib/prompts.ts         biblioteca de prompts propios
@@ -185,8 +196,11 @@ Para protocolos distintos, añade una función generadora en
 
 ## Límites y decisiones
 
-- El servidor recorta a 48 mensajes, 60 000 caracteres por mensaje, 240 000
-  caracteres en total y 8 192 tokens de salida.
+- Nexo no recorta mensajes, contexto ni texto renderizado. El límite real es
+  la ventana de contexto que impone cada proveedor; si se supera, el error del
+  proveedor se muestra localizado.
+- El límite de tokens de salida se puede dejar en **0** (máximo del modelo) en
+  Ajustes → Modelo. Los valores altos permiten respuestas más largas.
 - Cada adjunto acepta hasta 200 KB / 24 000 caracteres; máximo 3 archivos y
   48 000 caracteres en conjunto.
 - Las claves en `localStorage` son cómodas pero no están cifradas: cualquiera

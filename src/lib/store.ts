@@ -15,7 +15,8 @@ export const DEFAULT_SETTINGS: Workspace['settings'] = {
   // Vacío: se usan las instrucciones predeterminadas del idioma activo.
   system: '',
   temperature: 0.7,
-  maxTokens: 2048,
+  // 0 = sin límite artificial; se usa el máximo disponible del proveedor.
+  maxTokens: 0,
   compare: false,
   compareModels: [
     { provider: 'openai', model: 'gpt-4o-mini' },
@@ -156,7 +157,9 @@ export function loadWorkspace(): Workspace {
           : DEFAULT_SETTINGS.temperature,
       maxTokens:
         typeof stored.maxTokens === 'number' && Number.isFinite(stored.maxTokens)
-          ? Math.min(8192, Math.max(64, Math.round(stored.maxTokens)))
+          ? stored.maxTokens === 2048
+            ? 0
+            : Math.min(131_072, Math.max(0, Math.round(stored.maxTokens)))
           : DEFAULT_SETTINGS.maxTokens,
       compareModels: compareModels.length ? compareModels : DEFAULT_SETTINGS.compareModels,
     }

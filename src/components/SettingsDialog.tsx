@@ -207,7 +207,11 @@ export function SettingsDialog({
                     <div className="key-head">
                       <span className="dot" style={{ background: provider.color }} />
                       <strong>{provider.name}</strong>
-                      {serverKeys[provider.id] ? <span className="badge ok">{t('settings.keys.serverKey')}</span> : null}
+                      {keys[provider.id] ? (
+                        <span className="badge ok">{t('settings.keys.saved')}</span>
+                      ) : serverKeys[provider.id] ? (
+                        <span className="badge ok">{t('settings.keys.serverKey')}</span>
+                      ) : null}
                       <a href={provider.keyUrl} target="_blank" rel="noreferrer noopener">
                         {t('settings.keys.create')}
                       </a>
@@ -283,12 +287,13 @@ export function SettingsDialog({
                 <input
                   className="input narrow"
                   type="number"
-                  min={64}
-                  max={8192}
-                  step={64}
+                  min={0}
+                  max={131072}
+                  step={512}
                   value={settings.maxTokens}
                   onChange={(event) => onChange({ maxTokens: Number(event.target.value) })}
                 />
+                <small>{t('settings.maxTokens.hint')}</small>
               </label>
 
               <label className="switch">

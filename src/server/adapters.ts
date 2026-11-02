@@ -164,6 +164,12 @@ async function* openAICompatible(input: StreamRequest): AsyncGenerator<string> {
   }
 }
 
+function anthropicOutputLimit(model: string): number {
+  if (/claude-.*opus-4/i.test(model)) return 32_000
+  if (/claude-.*(sonnet|haiku)-4/i.test(model)) return 64_000
+  return 8_192
+}
+
 async function* anthropic(input: StreamRequest): AsyncGenerator<string> {
   const { provider, model, apiKey, system, temperature, maxTokens, signal } = input
 
@@ -176,7 +182,7 @@ async function* anthropic(input: StreamRequest): AsyncGenerator<string> {
     },
     body: JSON.stringify({
       model,
-      max_tokens: maxTokens || 4096,
+      max_tokens: maxTokens && maxTokens > 0 ? maxTokens : anthropicOutputLimit(model),
       stream: true,
       messages: input.messages.map((message) => ({ role: message.role, content: message.content })),
       ...(system ? { system } : {}),
