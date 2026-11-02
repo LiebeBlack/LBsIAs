@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0a0b0e" />
+    <title>Nexo — todos los modelos de IA en un chat</title>
+    <meta
+      name="description"
+      content="Nexo es un chat que habla con OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, DeepSeek y xAI. Compara respuestas, cambia de modelo y usa tus propias claves."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Aplica tema y acento antes del primer pintado para evitar destellos.
+      try {
+        var raw = localStorage.getItem('nexo.state.v1')
+        var settings = raw ? JSON.parse(raw).settings || {} : {}
+        var theme = settings.theme || 'dark'
+        var dark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+        if (settings.accent) document.documentElement.style.setProperty('--accent', settings.accent)
+      } catch (error) {
+        document.documentElement.dataset.theme = 'dark'
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

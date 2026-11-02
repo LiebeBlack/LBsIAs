@@ -1,0 +1,35 @@
+{
+  "name": "nexo",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Un chat, todos los modelos de IA. Multi-proveedor, BYOK, desplegable en Cloudflare.",
+  "scripts": {
+    "dev": "bun scripts/dev.mjs",
+    "dev:client": "vite",
+    "dev:api": "bun src/dev.ts",
+    "build": "vite build && bun build src/worker.ts --outfile dist/server/index.js --format esm --target browser --minify",
+    "deploy": "bun run build && wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "hono": "^4.13.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261019.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.1.0",
+    "typescript": "^5.9.0",
+    "vite": "^8.3.0",
+    "wrangler": "^4.151.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

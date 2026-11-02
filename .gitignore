@@ -1,0 +1,28 @@
+# Dependencias (se instalan con `bun install`)
+node_modules
+
+# Salida de build
+dist
+
+# Caché y estado local de Cloudflare
+.wrangler
+.dev.vars
+.dev.vars.*
+
+# Secretos y variables de entorno
+.env
+.env.*
+!.env.example
+
+# Metadatos de herramientas locales
+.freebuff
+.vscode
+.idea
+
+# Sistema y logs
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+bun-debug.log*
+*.tsbuildinfo
